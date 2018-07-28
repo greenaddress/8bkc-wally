@@ -5,4 +5,4 @@ services:
   - docker
 
 script:
-  - docker run -v $PWD:/8bkc-wally greenaddress/esp@sha256:9335daa959605fb172dc783b5164bb6bb21df6cbae6cd2663db7310e1a270656
+  - docker run -v $PWD:/8bkc-wally greenaddress/esp@sha256:cbf9419a1170585c44ce007bb858413a92e0a0030e9e8586d518e66a549225b8
