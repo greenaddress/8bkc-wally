@@ -1,0 +1,8 @@
+language: generic
+sudo: required
+
+services:
+  - docker
+
+script:
+  - docker run -v $PWD:/8bkc-wally greenaddress/esp@sha256:41930431dc63afbc6bccea8b736abb3773b23be6140156fa546ff99df5177547

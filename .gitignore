@@ -1,0 +1,4 @@
+build
+debug.log
+sdkconfig.old
+components/**/*.d
