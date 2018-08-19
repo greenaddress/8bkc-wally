@@ -6,6 +6,7 @@
 
 #include <include/wally_crypto.h>
 #include <include/wally_script.h>
+#include <include/wally_transaction.h>
 
 #include <limits.h>
 #include <stdbool.h>
@@ -147,6 +148,113 @@ size_t varint_length_from_bytes(const unsigned char *bytes)
     return sizeof(uint8_t);
 }
 
+/* Get the length of a script integer in bytes. signed_v should not be
+ * larger than int32_t (i.e. +/- 31 bits)
+ */
+static size_t scriptint_get_length(int64_t signed_v)
+{
+    uint64_t v = signed_v < 0 ? -signed_v : signed_v;
+    size_t len = 0;
+    unsigned char last = 0;
+
+    while (v) {
+        last = v & 0xff;
+        len += 1;
+        v >>= 8;
+    }
+    return len + (last & 0x80 ? 1 : 0);
+}
+
+size_t scriptint_to_bytes(int64_t signed_v, unsigned char *bytes_out)
+{
+    uint64_t v = signed_v < 0 ? -signed_v : signed_v;
+    size_t len = 0;
+    unsigned char last = 0;
+
+    while (v) {
+        last = v & 0xff;
+        *bytes_out++ = last;
+        len += 1;
+        v >>= 8;
+    }
+    if (last & 0x80) {
+        *bytes_out = signed_v < 0 ? 0x80 : 0;
+        ++len;
+    } else if (signed_v < 0)
+        bytes_out[-1] |= 0x80;
+    return len;
+}
+
+static size_t confidential_commitment_length_from_bytes(const unsigned char *bytes,
+                                                        bool ct_value)
+{
+    if (bytes) {
+        switch (*bytes) {
+        case 1:
+            return ct_value ? WALLY_TX_ASSET_CT_VALUE_UNBLIND_LEN : WALLY_TX_ASSET_CT_LEN;
+        case WALLY_TX_ASSET_CT_VALUE_PREFIX_A:
+        case WALLY_TX_ASSET_CT_VALUE_PREFIX_B:
+        case WALLY_TX_ASSET_CT_ASSET_PREFIX_A:
+        case WALLY_TX_ASSET_CT_ASSET_PREFIX_B:
+        case WALLY_TX_ASSET_CT_NONCE_PREFIX_A:
+        case WALLY_TX_ASSET_CT_NONCE_PREFIX_B:
+            return WALLY_TX_ASSET_CT_LEN;
+        }
+    }
+    return sizeof(uint8_t);
+}
+
+static size_t confidential_commitment_varint_from_bytes(const unsigned char *bytes,
+                                                        uint64_t *v,
+                                                        bool ct_value)
+{
+    switch (*bytes) {
+    case 1:
+        *v = ct_value ? WALLY_TX_ASSET_CT_VALUE_UNBLIND_LEN : WALLY_TX_ASSET_CT_LEN;
+        return *v;
+    case WALLY_TX_ASSET_CT_VALUE_PREFIX_A:
+    case WALLY_TX_ASSET_CT_VALUE_PREFIX_B:
+    case WALLY_TX_ASSET_CT_ASSET_PREFIX_A:
+    case WALLY_TX_ASSET_CT_ASSET_PREFIX_B:
+    case WALLY_TX_ASSET_CT_NONCE_PREFIX_A:
+    case WALLY_TX_ASSET_CT_NONCE_PREFIX_B:
+        *v = WALLY_TX_ASSET_CT_LEN;
+        return *v;
+    }
+    *v = 0;
+    return sizeof(uint8_t);
+}
+
+size_t confidential_asset_length_from_bytes(const unsigned char *bytes)
+{
+    return confidential_commitment_length_from_bytes(bytes, false);
+}
+
+size_t confidential_value_length_from_bytes(const unsigned char *bytes)
+{
+    return confidential_commitment_length_from_bytes(bytes, true);
+}
+
+size_t confidential_nonce_length_from_bytes(const unsigned char *bytes)
+{
+    return confidential_commitment_length_from_bytes(bytes, false);
+}
+
+size_t confidential_asset_varint_from_bytes(const unsigned char *bytes, uint64_t *v)
+{
+    return confidential_commitment_varint_from_bytes(bytes, v, false);
+}
+
+size_t confidential_value_varint_from_bytes(const unsigned char *bytes, uint64_t *v)
+{
+    return confidential_commitment_varint_from_bytes(bytes, v, true);
+}
+
+size_t confidential_nonce_varint_from_bytes(const unsigned char *bytes, uint64_t *v)
+{
+    return confidential_commitment_varint_from_bytes(bytes, v, false);
+}
+
 size_t varint_from_bytes(const unsigned char *bytes, uint64_t *v)
 {
 #define b(n) ((uint64_t)bytes[n] << ((n - 1) * 8))
@@ -174,6 +282,16 @@ size_t varbuff_to_bytes(const unsigned char *bytes, size_t bytes_len,
     if (bytes_len)
         memcpy(bytes_out, bytes, bytes_len);
     return n + bytes_len;
+}
+
+size_t confidential_value_to_bytes(const unsigned char *bytes, size_t bytes_len,
+                                   unsigned char *bytes_out)
+{
+    if (!bytes_len)
+        *bytes_out = 0;
+    else
+        memcpy(bytes_out, bytes, bytes_len);
+    return !bytes_len ? 1 : bytes_len;
 }
 
 static bool scriptpubkey_is_op_return(const unsigned char *bytes, size_t bytes_len)
@@ -221,9 +339,9 @@ static bool scriptpubkey_is_multisig(const unsigned char *bytes, size_t bytes_le
     const size_t min_1of1_len = 1 + 1 + 33 + 1 + 1; /* OP_1 [pubkey] OP_1 OP_CHECKMULTISIG */
     size_t i, n_pushes;
 
-    if (bytes_len < min_1of1_len || !is_op_n(bytes[0], false, &n_pushes) ||
+    if (bytes_len < min_1of1_len || !is_op_n(bytes[0], false, NULL) ||
         bytes[bytes_len - 1] != OP_CHECKMULTISIG ||
-        !is_op_n(bytes[bytes_len - 2], false, NULL))
+        !is_op_n(bytes[bytes_len - 2], false, &n_pushes))
         return false;
 
     ++bytes;
@@ -437,17 +555,11 @@ int wally_scriptpubkey_multisig_from_bytes(
     return WALLY_OK;
 }
 
-WALLY_CORE_API int wally_scriptsig_multisig_from_bytes(
-    const unsigned char *script,
-    size_t script_len,
-    const unsigned char *bytes,
-    size_t bytes_len,
-    const uint32_t *sighash,
-    size_t sighash_len,
-    uint32_t flags,
-    unsigned char *bytes_out,
-    size_t len,
-    size_t *written)
+int wally_scriptsig_multisig_from_bytes(
+    const unsigned char *script, size_t script_len,
+    const unsigned char *bytes, size_t bytes_len,
+    const uint32_t *sighash, size_t sighash_len, uint32_t flags,
+    unsigned char *bytes_out, size_t len, size_t *written)
 {
 #define MAX_DER (EC_SIGNATURE_DER_MAX_LEN + 1)
     unsigned char der_buff[16 * MAX_DER], *p = bytes_out;
@@ -507,6 +619,127 @@ WALLY_CORE_API int wally_scriptsig_multisig_from_bytes(
 cleanup:
     wally_clear(der_buff, sizeof(der_buff));
     return ret;
+}
+
+int wally_scriptpubkey_csv_2of2_then_1_from_bytes(
+    const unsigned char *bytes, size_t bytes_len, uint32_t csv_blocks,
+    uint32_t flags, unsigned char *bytes_out, size_t len, size_t *written)
+{
+    size_t csv_len = scriptint_get_length(csv_blocks);
+    size_t script_len = 2 * (EC_PUBLIC_KEY_LEN + 1) + 9 + 1 + csv_len; /* 1 for push */
+
+    if (written)
+        *written = 0;
+
+    if (!bytes || bytes_len != 2 * EC_PUBLIC_KEY_LEN ||
+        !csv_blocks || csv_blocks > 0xffff || flags || !bytes_out || !written)
+        return WALLY_EINVAL;
+
+    if (len < script_len) {
+        *written = len;
+        return WALLY_OK;
+    }
+
+    /* The script we create is:
+     *     OP_DEPTH OP_1SUB
+     *     OP_IF
+     *       # The stack contains the main and and recovery signatures.
+     *       # Check the main signature then fall through to check the recovery.
+     *       <main_pubkey> OP_CHECKSIGVERIFY
+     *     OP_ELSE
+     *       # The stack contains only the recovery signature.
+     *       # Check the CSV time has expired then fall though as above.
+     *       <csv_blocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+     *     OP_ENDIF
+     *     # Check the recovery signature
+     *     <recovery_pubkey> OP_CHECKSIG
+     */
+    *bytes_out++ = OP_DEPTH;
+    *bytes_out++ = OP_1SUB;
+    *bytes_out++ = OP_IF;
+    *bytes_out++ = EC_PUBLIC_KEY_LEN;
+    memcpy(bytes_out, bytes, EC_PUBLIC_KEY_LEN);
+    bytes_out += EC_PUBLIC_KEY_LEN;
+    *bytes_out++ = OP_CHECKSIGVERIFY;
+    *bytes_out++ = OP_ELSE;
+    *bytes_out++ = csv_len & 0xff;
+    bytes_out += scriptint_to_bytes(csv_blocks, bytes_out);
+    *bytes_out++ = OP_CHECKSEQUENCEVERIFY;
+    *bytes_out++ = OP_DROP;
+    *bytes_out++ = OP_ENDIF;
+    *bytes_out++ = EC_PUBLIC_KEY_LEN;
+    memcpy(bytes_out, bytes + EC_PUBLIC_KEY_LEN, EC_PUBLIC_KEY_LEN);
+    bytes_out += EC_PUBLIC_KEY_LEN;
+    *bytes_out++ = OP_CHECKSIG;
+
+    *written = script_len;
+    return WALLY_OK;
+}
+
+int wally_scriptpubkey_csv_2of3_then_2_from_bytes(
+    const unsigned char *bytes, size_t bytes_len, uint32_t csv_blocks,
+    uint32_t flags, unsigned char *bytes_out, size_t len, size_t *written)
+{
+    size_t csv_len = scriptint_get_length(csv_blocks);
+    size_t script_len = 3 * (EC_PUBLIC_KEY_LEN + 1) + 13 + 1 + csv_len; /* 1 for push */
+
+    if (written)
+        *written = 0;
+
+    if (!bytes || bytes_len != 3 * EC_PUBLIC_KEY_LEN ||
+        !csv_blocks || csv_blocks > 0xffff || flags || !bytes_out || !written)
+        return WALLY_EINVAL;
+
+    if (len < script_len) {
+        *written = len;
+        return WALLY_OK;
+    }
+
+    /* The script we create is:
+     *     OP_DEPTH OP_1SUB OP_1SUB
+     *     OP_IF
+     *       # The stack contains 3 items, a dummy push for the off-by-one bug
+     *       # in OP_CHECKMULTISIG, and any 2 of the 3 signatures.
+     *       OP_2 <main_pubkey>
+     *     OP_ELSE
+     *       # The stack contains a dummy push as above, and either of the
+     *       # recovery signatures.
+     *       <csv_blocks> OP_CHECKSEQUENCEVERIFY OP_DROP
+     *       # Note OP_0 is a dummy pubkey that can't match any signature. This
+     *       # allows us to share the final OP_3 OP_CHECKMULTISIGVERIFY case
+     *       # thus reducing the size of the script.
+     *       OP_1 OP_0
+     *     OP_ENDIF
+     *     # Shared code to check the signatures provided
+     *     <recovery_pubkey> <recovery_pubkey_2> OP_3 OP_CHECKMULTISIG
+     */
+    *bytes_out++ = OP_DEPTH;
+    *bytes_out++ = OP_1SUB;
+    *bytes_out++ = OP_1SUB;
+    *bytes_out++ = OP_IF;
+    *bytes_out++ = OP_2;
+    *bytes_out++ = EC_PUBLIC_KEY_LEN;
+    memcpy(bytes_out, bytes, EC_PUBLIC_KEY_LEN);
+    bytes_out += EC_PUBLIC_KEY_LEN;
+    *bytes_out++ = OP_ELSE;
+    *bytes_out++ = csv_len & 0xff;
+    bytes_out += scriptint_to_bytes(csv_blocks, bytes_out);
+    *bytes_out++ = OP_CHECKSEQUENCEVERIFY;
+    *bytes_out++ = OP_DROP;
+    *bytes_out++ = OP_1;
+    *bytes_out++ = OP_0;
+    *bytes_out++ = OP_ENDIF;
+    *bytes_out++ = EC_PUBLIC_KEY_LEN;
+    memcpy(bytes_out, bytes + EC_PUBLIC_KEY_LEN, EC_PUBLIC_KEY_LEN);
+    bytes_out += EC_PUBLIC_KEY_LEN;
+    *bytes_out++ = EC_PUBLIC_KEY_LEN;
+    memcpy(bytes_out, bytes + EC_PUBLIC_KEY_LEN * 2, EC_PUBLIC_KEY_LEN);
+    bytes_out += EC_PUBLIC_KEY_LEN;
+    *bytes_out++ = OP_3;
+    *bytes_out++ = OP_CHECKMULTISIG;
+
+    *written = script_len;
+    return WALLY_OK;
 }
 
 int script_get_push_size_from_bytes(

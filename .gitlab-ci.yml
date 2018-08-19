@@ -1,5 +1,5 @@
 linux_release:
-  image: greenaddress/wallycore@sha256:9bbe9705c415f2bf35231df2acd731eb99f022c279e7f39ac1ed364ed3f170df
+  image: greenaddress/wallycore@sha256:a655db9e9b378ab64e0fca9016bd29a21baf40b95fc6f7125247b55394decdc7
   artifacts:
     expire_in: 1 day
     name: wallycore-bindings
@@ -10,16 +10,16 @@ linux_release:
     - ga
   script:
     - cd $CI_PROJECT_DIR
-    - ./tools/build_python_wheels.sh
-    - python setup.py sdist --dist-dir ./wally_core
-    - ./tools/build_android_libraries.sh
-    - ./tools/build_js_bindings.sh
+    - ENABLE_ELEMENTS=--enable-elements ./tools/build_python_wheels.sh
+    - ENABLE_ELEMENTS=--enable-elements python setup.py sdist --dist-dir ./wally_core
+    - ENABLE_ELEMENTS=--enable-elements ./tools/build_android_libraries.sh
+    - ENABLE_ELEMENTS=--enable-elements ./tools/build_js_bindings.sh
     - mv release wallycore-android-jni
     - tar cvf wally_dist/wallycore-android-jni.tar wallycore-android-jni
     - gzip -9 wally_dist/wallycore-android-jni.tar
 
 linux_debug:
-  image: greenaddress/wallycore@sha256:af5eff8d1839189cf72e4f9cc6dfd7f13730c6837b09d9a33cc5f0d6de66aa16
+  image: greenaddress/wallycore@sha256:a655db9e9b378ab64e0fca9016bd29a21baf40b95fc6f7125247b55394decdc7
   tags:
     - ga
   script:
@@ -40,7 +40,7 @@ ubuntu_release:
     - ga
   script:
     - cd $CI_PROJECT_DIR
-    - ./tools/build_python_wheels.sh python3
+    - ENABLE_ELEMENTS=--enable-elements ./tools/build_python_wheels.sh python3
 
 osx_release:
   tags:
@@ -53,7 +53,7 @@ osx_release:
     - wally_dist/*
   script:
     - cd $CI_PROJECT_DIR
-    - ./tools/build_python_wheels.sh python python3
+    - ./tools/build_python_wheels.sh "python python3"
 
 armv7l_release:
   tags:
@@ -110,11 +110,12 @@ windows10_release:
     - wally_dist\*
   script:
     - cd %CI_PROJECT_DIR%
+    - set ENABLE_ELEMENTS=-DBUILD_ELEMENTS=1
     - call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" amd64
     - tools\msvc\wheel.bat
 
 apidocs:
-  image: greenaddress/wallycore@sha256:af5eff8d1839189cf72e4f9cc6dfd7f13730c6837b09d9a33cc5f0d6de66aa16
+  image: greenaddress/wallycore@sha256:a655db9e9b378ab64e0fca9016bd29a21baf40b95fc6f7125247b55394decdc7
   artifacts:
     expire_in: 14 days
     name: wallycore-apidocs
