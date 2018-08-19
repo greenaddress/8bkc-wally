@@ -87,7 +87,7 @@ You can also install the binary wally releases using the released
 wheel files without having to compile the library, e.g.:
 
 ```
-pip install wallycore-0.6.1-cp27-cp27mu-linux_x86_64.whl
+pip install wallycore-0.6.3-cp27-cp27mu-linux_x86_64.whl
 ```
 
 The script `tools/build_python_wheels.sh` builds the release files and can be
@@ -112,7 +112,7 @@ $ export WALLY_USE_GCC=1
 
 # Prepare to build
 $ ./tools/cleanup.sh
-$ ./tools/autogen,sh
+$ ./tools/autogen.sh
 
 # See the comments in tools/android_helpers.sh for arguments
 $ android_build_wally armeabi-v7a $PWD/toolchain-armeabi-v7a 17 "--enable-swig-java"

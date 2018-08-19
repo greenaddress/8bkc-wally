@@ -181,7 +181,7 @@ static jbyteArray create_array(JNIEnv *jenv, const unsigned char* p, size_t len)
     $1 = uint32_cast(jenv, $input);
 }
 
-/* uint62_t input arguments are taken as longs and cast unchecked. This means
+/* uint64_t input arguments are taken as longs and cast unchecked. This means
  * callers need to take care with treating negative values correctly */
 %typemap(in) uint64_t {
     $1 = (uint64_t)($input);
@@ -391,6 +391,8 @@ static jbyteArray create_array(JNIEnv *jenv, const unsigned char* p, size_t len)
 %returns_array_(wally_pbkdf2_hmac_sha256, 7, 8, PBKDF2_HMAC_SHA256_LEN);
 %returns_array_(wally_pbkdf2_hmac_sha512, 7, 8, PBKDF2_HMAC_SHA512_LEN);
 %returns_size_t(wally_script_push_from_bytes);
+%returns_size_t(wally_scriptpubkey_csv_2of2_then_1_from_bytes);
+%returns_size_t(wally_scriptpubkey_csv_2of3_then_2_from_bytes);
 %returns_size_t(wally_scriptpubkey_get_type);
 %returns_size_t(wally_scriptpubkey_p2pkh_from_bytes);
 %returns_size_t(wally_scriptpubkey_p2sh_from_bytes);
